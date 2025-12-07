@@ -3,7 +3,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma/client"
 }
 
 datasource db {
@@ -27,21 +26,32 @@ model User {
 }
 
 model Job {
-  id              String     @id @default(uuid()) @db.Uuid
-  userId          String     @map("user_id") @db.Uuid
-  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  prompt          String     @db.Text
-  imageInputUrl   String?    @map("image_input_url")
-  stylePreset     String?    @map("style_preset")
-  layoutPreset    String?    @map("layout_preset")
-  status          String     @default("pending") // pending, processing, completed, failed
-  progress        Int        @default(0)
-  results         Json?      @db.JsonB
-  errorMessage    String?    @map("error_message")
-  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  completedAt     DateTime?  @map("completed_at") @db.Timestamptz(6)
-  analytics       Analytics?
+  id                String     @id @default(uuid()) @db.Uuid
+  userId            String     @map("user_id") @db.Uuid
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt            String     @db.Text
+  imageInputUrl     String?    @map("image_input_url")
+  uploadedImages    Json?      @map("uploaded_images") @db.JsonB // Array of user uploaded image URLs
+  stylePreset       String?    @map("style_preset")
+  layoutPreset      String?    @map("layout_preset")
+  status            String     @default("pending") // pending, queued, processing, completed, failed, cancelled
+  progress          Int        @default(0)
+  currentStep       String?    @map("current_step")
+  eta               Int?       // Estimated time remaining in seconds
+  results           Json?      @db.JsonB // Array of 3 generated variations
+  selectedVariation Int?       @map("selected_variation") // Index of selected image (0-2)
+  parentJobId       String?    @map("parent_job_id") @db.Uuid // For refinement jobs
+  parentJob         Job?       @relation("JobRefinements", fields: [parentJobId], references: [id], onDelete: SetNull)
+  refinements       Job[]      @relation("JobRefinements")
+  replicateId       String?    @unique @map("replicate_id") // Replicate prediction ID
+  tokensUsed        Int        @default(1) @map("tokens_used")
+  errorMessage      String?    @map("error_message")
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt       DateTime?  @map("completed_at") @db.Timestamptz(6)
+  analytics         Analytics?
 
+  @@index([userId, createdAt])
+  @@index([status])
   @@map("jobs")
 }
 
@@ -86,20 +96,3 @@ model Analytics {
   @@map("analytics")
 }
 
-// Enable Row Level Security (RLS) - Note: These are SQL commands that need to be run in your database
-// You'll need to run these commands in your database after applying migrations
-/*
--- Enable RLS on all tables
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE brand_kits ENABLE ROW LEVEL SECURITY;
-ALTER TABLE analytics ENABLE ROW LEVEL SECURITY;
-
--- RLS Policies
-CREATE POLICY users_policy ON users FOR ALL USING (clerk_id = current_setting('app.clerk_user_id'));
-CREATE POLICY jobs_policy ON jobs FOR ALL USING (user_id IN (SELECT id FROM users WHERE clerk_id = current_setting('app.clerk_user_id')));
-CREATE POLICY payments_policy ON payments FOR ALL USING (user_id IN (SELECT id FROM users WHERE clerk_id = current_setting('app.clerk_user_id')));
-CREATE POLICY brand_kits_policy ON brand_kits FOR ALL USING (user_id IN (SELECT id FROM users WHERE clerk_id = current_setting('app.clerk_user_id')));
-CREATE POLICY analytics_policy ON analytics FOR ALL USING (job_id IN (SELECT id FROM jobs WHERE user_id IN (SELECT id FROM users WHERE clerk_id = current_setting('app.clerk_user_id'))));
-*/

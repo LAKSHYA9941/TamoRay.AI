@@ -14,7 +14,7 @@ export default async function Home() {
 
   return (
     // Set min-h-screen and black background for the entire page body
-    <div className="w-full overflow-x-hidden min-h-screen bg-black">
+    <div className="min-w-full h-full mx-auto min-h-screen bg-black overflow-x-hidden">
 
       {/* 1. HERO SECTION (VORTEX BACKGROUND) */}
       <HeroSection />

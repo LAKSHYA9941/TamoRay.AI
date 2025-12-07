@@ -1,32 +1,40 @@
+// app/lib/db/db.ts
 import 'server-only';
-
-import { PrismaClient } from '../../../generated/prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
 const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error('DATABASE_URL is missing.');
+if (!databaseUrl) throw new Error('DATABASE_URL is missing');
 
-type GlobalPrisma = typeof globalThis & {
-  prisma?: PrismaClient;
-};
+type PrismaClientType = ReturnType<typeof createPrismaClient>;
 
-const globalForPrisma = globalThis as GlobalPrisma;
+declare global {
+  var prisma: PrismaClientType | undefined;
+}
 
-// Create a pg Pool
-const pool = new Pool({
-  connectionString: databaseUrl,
-});
+const createPrismaClient = () => {
+  // Create a PostgreSQL connection pool
+  const pool = new Pool({ connectionString: databaseUrl });
 
-// Create Prisma adapter using the pool (IMPORTANT)
-const adapter = new PrismaPg(pool);
+  // Create the Prisma adapter
+  const adapter = new PrismaPg(pool);
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    adapter, // ONLY this is needed
+  // Initialize Prisma Client with the adapter
+  const client = new PrismaClient({
+    adapter,
+    log: process.env.NODE_ENV === 'development'
+      ? ['query', 'error', 'warn']
+      : ['error']
   });
 
+  return client;
+};
+
+export const prisma = global.prisma || createPrismaClient();
+
 if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+  global.prisma = prisma;
 }
+
+export * from '@prisma/client';
