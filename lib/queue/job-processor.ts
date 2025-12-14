@@ -1,236 +1,218 @@
-import prisma from "@/lib/prisma";
-import { jobStatus } from '@/lib/queue/redis';
-import { generateThumbnails, refineImage } from '@/lib/ai/replicate-client';
-import { uploadFromUrl } from '@/lib/storage/cloudinary';
+import { jobQueue, jobStatus, QueueJob } from './redis';
+import prisma from '@/lib/prisma';
+import Replicate from 'replicate';
+import cloudinary from '@/lib/storage/cloudinary';
 
-/**
- * Process a generation job
- */
-export async function processGenerationJob(job: any) {
-  const startTime = Date.now();
+export { jobQueue, jobStatus };
 
-  try {
-    console.log(`[Worker] Processing job ${job.jobId}`);
+// Configuration from reference
+const REPLICATE_VERSION = process.env.REPLICATE_FLUX_SCHNELL_VERSION || "c846a69991daf4c0e5d016514849d14ee5b2e6846ce6b9d6f21369e564cfe51e";
+const SYSTEM_PROMPT = `You are an expert at making YouTube thumbnails. Focus on clear, impactful imagery and strong visuals. Consider the following when generating:
+- Catchy: it should grab attention quickly
+- Relevance: it should accurately represent the video content
+- Emotion/Intrigue: it should evoke curiosity or a strong emotion
+- Background Style: The background should be giving thumbnail a dramatic, intense, and user desired feeling.
+- Follow the Rule of Thirds — place faces near the intersections to draw attention.
+- ALWAYS USE THE REFERENCE IMAGE IF IT IS PROVIDED AND ENHANCE SO THAT THE USER GET THE BEST VERSION OF HIM/HERSELF`;
 
-    // Update status: Processing
-    await Promise.all([
-      prisma.job.update({
-        where: { id: job.jobId },
-        data: {
-          status: 'processing',
-          progress: 10,
-          currentStep: 'Initializing AI generation...',
-        },
-      }),
-      jobStatus.set(job.jobId, {
-        status: 'processing',
-        progress: 10,
-        currentStep: 'Initializing AI generation...',
-        eta: 40,
-      }),
-    ]);
+export async function processGenerationJob(job: QueueJob) {
+    console.log('🚀 [Job Processor] Starting job:', job.jobId);
 
-    // Generate with Replicate
-    await jobStatus.update(job.jobId, {
-      progress: 30,
-      currentStep: 'Generating 3 thumbnail variations...',
-      eta: 30,
-    });
-
-    const replicateOutput = await generateThumbnails({
-      prompt: job.prompt,
-      uploadedImages: job.uploadedImages,
-      style: job.stylePreset,
-      numOutputs: 3,
-    });
-
-    // replicateOutput is an array of image URLs
-    const generatedUrls = Array.isArray(replicateOutput)
-      ? replicateOutput
-      : [replicateOutput];
-
-    if (generatedUrls.length === 0) {
-      throw new Error('No images generated');
+    // Initialize Replicate lazily safely
+    const token = process.env.REPLICATE_API_TOKEN;
+    if (!token) {
+        console.error("❌ [Job Processor] Missing REPLICATE_API_TOKEN");
+        await Promise.all([
+            prisma.job.update({
+                where: { id: job.jobId },
+                data: {
+                    status: 'failed',
+                    errorMessage: "Server configuration error: Missing AI credentials"
+                }
+            }),
+            jobStatus.set(job.jobId, {
+                status: 'failed',
+                progress: 0,
+                currentStep: 'Failed',
+                eta: 0,
+                error: "Server configuration error: Missing AI credentials"
+            })
+        ]);
+        return;
     }
 
-    // Upload to Cloudinary
-    await jobStatus.update(job.jobId, {
-      progress: 70,
-      currentStep: 'Uploading images to cloud storage...',
-      eta: 10,
+    const replicate = new Replicate({
+        auth: token,
     });
 
-    const uploadedResults = [];
+    try {
+        // Update status: Starting
+        await jobStatus.set(job.jobId, {
+            status: 'processing',
+            progress: 10,
+            currentStep: 'Starting generation...',
+            eta: 40
+        });
 
-    for (let i = 0; i < generatedUrls.length; i++) {
-      const result = await uploadFromUrl(generatedUrls[i], {
-        folder: `thumbnail-generator/${job.userId}`,
-        publicId: `${job.jobId}_v${i + 1}`,
-      });
+        // 1. Prepare Inputs
+        let fullPrompt = `${SYSTEM_PROMPT}\n\nGenerate a YouTube thumbnail for: ${job.prompt}`;
+        if (job.stylePreset) {
+            fullPrompt += `\nStyle: ${job.stylePreset}`;
+        }
 
-      uploadedResults.push({
-        url: result.url,
-        publicId: result.publicId,
-        width: result.width,
-        height: result.height,
-        format: result.format,
-        variationIndex: i,
-      });
+        const input: any = {
+            prompt: fullPrompt,
+            aspect_ratio: "16:9",
+            output_format: "png",
+            output_quality: 100,
+            num_outputs: 1,
+            go_fast: true,
+        };
+
+        // Handle uploaded images (use the first one as reference if available)
+        if (job.uploadedImages && Array.isArray(job.uploadedImages) && job.uploadedImages.length > 0) {
+            input.image = job.uploadedImages[0];
+            console.log('📸 [Job Processor] Using reference image:', job.uploadedImages[0]);
+        }
+
+        // 2. Call Replicate
+        await jobStatus.set(job.jobId, {
+            status: 'processing',
+            progress: 30,
+            currentStep: 'Generating with AI...',
+            eta: 30
+        });
+
+        console.log("🤖 [Job Processor] Calling Replicate with model: black-forest-labs/flux-1.1-pro");
+        console.log("📝 [Job Processor] Prompt:", fullPrompt.substring(0, 100) + "...");
+
+        const output = await replicate.run(
+            "black-forest-labs/flux-1.1-pro",
+            { input }
+        );
+
+        console.log("✅ [Job Processor] Replicate output received");
+
+        if (!output || !Array.isArray(output) || output.length === 0) {
+            throw new Error("No output received from Replicate");
+        }
+
+        // Handle FileOutput object from Replicate
+        const replicateOutput = output[0];
+        let replicateImageUrl: string;
+
+        // Check if it's a FileOutput object with url() method
+        if (typeof replicateOutput === 'object' && replicateOutput !== null && 'url' in replicateOutput) {
+            // It's a FileOutput object, call url() to get the URL
+            const urlResult = await (replicateOutput as any).url();
+
+            // Convert URL object to string if needed
+            if (typeof urlResult === 'object' && urlResult !== null && 'href' in urlResult) {
+                replicateImageUrl = urlResult.href;
+            } else if (typeof urlResult === 'string') {
+                replicateImageUrl = urlResult;
+            } else {
+                replicateImageUrl = String(urlResult);
+            }
+
+            console.log("🖼️ [Job Processor] Extracted URL from FileOutput:", replicateImageUrl);
+        } else if (typeof replicateOutput === 'string') {
+            // It's already a string URL
+            replicateImageUrl = replicateOutput;
+            console.log("🖼️ [Job Processor] Image URL from Replicate:", replicateImageUrl);
+        } else {
+            console.error("❌ [Job Processor] Unexpected output format:", replicateOutput);
+            throw new Error("Unexpected output format from Replicate");
+        }
+
+        // 3. Upload to Cloudinary
+        await jobStatus.set(job.jobId, {
+            status: 'processing',
+            progress: 80,
+            currentStep: 'Processing final image...',
+            eta: 10
+        });
+
+        console.log("☁️ [Job Processor] Uploading to Cloudinary...");
+
+        const uploadResult = await cloudinary.uploader.upload(replicateImageUrl, {
+            folder: "thumbnails",
+            resource_type: "image",
+            transformation: [
+                {
+                    width: 1280,
+                    height: 720,
+                    crop: "pad",
+                    background: "auto",
+                    quality: "auto",
+                    fetch_format: "auto"
+                },
+            ],
+        });
+
+        const finalImageUrl = uploadResult.secure_url;
+        console.log("✅ [Job Processor] Cloudinary upload complete:", finalImageUrl);
+
+        // Format results to match frontend expectations
+        const results = [
+            {
+                url: finalImageUrl,
+                publicId: uploadResult.public_id,
+                width: uploadResult.width,
+                height: uploadResult.height,
+                format: uploadResult.format,
+                variationIndex: 0
+            }
+        ];
+
+        // 4. Update DB
+        await prisma.job.update({
+            where: { id: job.jobId },
+            data: {
+                status: 'completed',
+                progress: 100,
+                results: results,
+                completedAt: new Date()
+            }
+        });
+
+        // 5. Update Redis
+        await jobStatus.set(job.jobId, {
+            status: 'completed',
+            progress: 100,
+            currentStep: 'Completed',
+            eta: 0,
+            results: JSON.stringify(results)
+        });
+
+        console.log("🎉 [Job Processor] Job completed successfully:", job.jobId);
+
+    } catch (error) {
+        console.error('❌ [Job Processor] Job failed:', error);
+
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+        await Promise.all([
+            prisma.job.update({
+                where: { id: job.jobId },
+                data: {
+                    status: 'failed',
+                    errorMessage: errorMessage
+                }
+            }),
+            jobStatus.set(job.jobId, {
+                status: 'failed',
+                progress: 0,
+                currentStep: 'Failed',
+                eta: 0,
+                error: errorMessage
+            })
+        ]);
     }
-
-    // Mark as completed
-    const processingTime = Date.now() - startTime;
-
-    await Promise.all([
-      prisma.job.update({
-        where: { id: job.jobId },
-        data: {
-          status: 'completed',
-          progress: 100,
-          currentStep: 'Done!',
-          results: uploadedResults,
-          completedAt: new Date(),
-        },
-      }),
-      jobStatus.set(job.jobId, {
-        status: 'completed',
-        progress: 100,
-        currentStep: 'Done!',
-        eta: 0,
-        results: JSON.stringify(uploadedResults),
-      }),
-    ]);
-
-    console.log(`[Worker] Job ${job.jobId} completed in ${processingTime}ms`);
-  } catch (error: any) {
-    console.error(`[Worker] Job ${job.jobId} failed:`, error);
-
-    await Promise.all([
-      prisma.job.update({
-        where: { id: job.jobId },
-        data: {
-          status: 'failed',
-          errorMessage: error.message,
-        },
-      }),
-      jobStatus.set(job.jobId, {
-        status: 'failed',
-        error: error.message,
-      }),
-    ]);
-
-    // Refund token
-    await prisma.user.update({
-      where: { id: job.userId },
-      data: { tokens: { increment: 1 } },
-    });
-  }
 }
 
-/**
- * Process a refinement job
- */
-export async function processRefinementJob(job: any) {
-  const startTime = Date.now();
-
-  try {
-    console.log(`[Worker] Processing refinement job ${job.jobId}`);
-
-    // Update status
-    await Promise.all([
-      prisma.job.update({
-        where: { id: job.jobId },
-        data: {
-          status: 'processing',
-          progress: 20,
-          currentStep: 'Refining selected image...',
-        },
-      }),
-      jobStatus.set(job.jobId, {
-        status: 'processing',
-        progress: 20,
-        currentStep: 'Refining selected image...',
-        eta: 25,
-      }),
-    ]);
-
-    // Refine with Replicate
-    const replicateOutput = await refineImage({
-      baseImageUrl: job.baseImageUrl,
-      refinementPrompt: job.prompt,
-      style: job.stylePreset,
-    });
-
-    const refinedUrl = Array.isArray(replicateOutput)
-      ? replicateOutput[0]
-      : replicateOutput;
-
-    // Upload to Cloudinary
-    await jobStatus.update(job.jobId, {
-      progress: 80,
-      currentStep: 'Uploading refined image...',
-      eta: 5,
-    });
-
-    const result = await uploadFromUrl(refinedUrl, {
-      folder: `thumbnail-generator/${job.userId}/refined`,
-      publicId: `${job.jobId}_refined`,
-    });
-
-    const uploadedResult = {
-      url: result.url,
-      publicId: result.publicId,
-      width: result.width,
-      height: result.height,
-      format: result.format,
-      isRefinement: true,
-    };
-
-    // Mark as completed
-    const processingTime = Date.now() - startTime;
-
-    await Promise.all([
-      prisma.job.update({
-        where: { id: job.jobId },
-        data: {
-          status: 'completed',
-          progress: 100,
-          currentStep: 'Done!',
-          results: [uploadedResult],
-          completedAt: new Date(),
-        },
-      }),
-      jobStatus.set(job.jobId, {
-        status: 'completed',
-        progress: 100,
-        currentStep: 'Done!',
-        eta: 0,
-        results: JSON.stringify([uploadedResult]),
-      }),
-    ]);
-
-    console.log(`[Worker] Refinement job ${job.jobId} completed in ${processingTime}ms`);
-  } catch (error: any) {
-    console.error(`[Worker] Refinement job ${job.jobId} failed:`, error);
-
-    await Promise.all([
-      prisma.job.update({
-        where: { id: job.jobId },
-        data: {
-          status: 'failed',
-          errorMessage: error.message,
-        },
-      }),
-      jobStatus.set(job.jobId, {
-        status: 'failed',
-        error: error.message,
-      }),
-    ]);
-
-    // Refund token
-    await prisma.user.update({
-      where: { id: job.userId },
-      data: { tokens: { increment: 1 } },
-    });
-  }
+export async function processRefinementJob(job: QueueJob) {
+    console.log('🔄 [Job Processor] Processing refinement job:', job.jobId);
+    // Reuse generation logic for now or implement specific refinement logic
+    return processGenerationJob(job);
 }

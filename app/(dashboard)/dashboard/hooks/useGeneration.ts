@@ -21,11 +21,12 @@ interface UseGenerationReturn {
   isGenerating: boolean;
   jobId: string | null;
   generationResults: GenerationResult[] | null;
+  generationResponse: any; // For backward compatibility
   error: string | null;
   progress: number;
   currentStep: string;
   eta: number;
-  startGeneration: (request: GenerationRequest) => Promise<void>;
+  startGeneration: (request: any) => Promise<void>;
   reset: () => void;
 }
 
@@ -38,12 +39,12 @@ export function useGeneration(): UseGenerationReturn {
   const [currentStep, setCurrentStep] = useState('');
   const [eta, setEta] = useState(0);
 
-  const startGeneration = useCallback(async (request: GenerationRequest) => {
+  const startGeneration = useCallback(async (request: any) => {
     setIsGenerating(true);
     setError(null);
     setProgress(0);
     setCurrentStep('Starting generation...');
-    setGenerationResults(null);
+    // DON'T reset generationResults - keep chat history
     setJobId(null);
 
     try {
@@ -81,7 +82,11 @@ export function useGeneration(): UseGenerationReturn {
 
           if (statusData.status === 'completed') {
             clearInterval(pollInterval);
-            setGenerationResults(statusData.results);
+            // Add new results to existing ones (chat history)
+            setGenerationResults(prev => {
+              const newResults = statusData.results || [];
+              return prev ? [...prev, ...newResults] : newResults;
+            });
             setIsGenerating(false);
             setProgress(100);
             setCurrentStep('Done!');
@@ -117,6 +122,7 @@ export function useGeneration(): UseGenerationReturn {
     isGenerating,
     jobId,
     generationResults,
+    generationResponse: generationResults, // For backward compatibility
     error,
     progress,
     currentStep,

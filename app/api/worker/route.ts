@@ -7,7 +7,7 @@ import { processGenerationJob, processRefinementJob } from '@/lib/queue/job-proc
  * Can be triggered by Vercel Cron or manually
  */
 export async function GET() {
-  console.log('[Worker] Starting job processing cycle');
+  console.log('⚙️ [Worker] Starting job processing cycle');
 
   let processedCount = 0;
   const maxBatchSize = 3; // Process up to 3 jobs per cycle
@@ -18,11 +18,11 @@ export async function GET() {
       const job = await jobQueue.pop();
 
       if (!job) {
-        console.log('[Worker] Queue is empty');
+        console.log('📭 [Worker] Queue is empty');
         break;
       }
 
-      console.log(`[Worker] Processing job ${job.jobId}`);
+      console.log(`🔄 [Worker] Processing job ${job.jobId}`);
 
       try {
         // Determine job type and process accordingly
@@ -35,11 +35,14 @@ export async function GET() {
         }
 
         processedCount++;
+        console.log(`✅ [Worker] Job ${job.jobId} processed successfully`);
       } catch (error) {
-        console.error(`[Worker] Job ${job.jobId} failed:`, error);
+        console.error(`❌ [Worker] Job ${job.jobId} failed:`, error);
         // Job processor handles error updates, so we just log here
       }
     }
+
+    console.log(`🏁 [Worker] Cycle complete. Processed ${processedCount} jobs`);
 
     return NextResponse.json({
       success: true,
@@ -47,7 +50,7 @@ export async function GET() {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('[Worker] Worker cycle failed:', error);
+    console.error('❌ [Worker] Worker cycle failed:', error);
     return NextResponse.json(
       {
         error: 'Worker cycle failed',

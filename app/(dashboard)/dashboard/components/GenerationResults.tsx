@@ -1,129 +1,139 @@
 'use client';
 
-import { Download, RefreshCw, CheckCircle2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Download, ExternalLink, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import type { GenerateResponse } from '../types';
+import Image from 'next/image';
+import { useState } from 'react';
+
+interface GenerationResult {
+  url: string;
+  publicId: string;
+  width: number;
+  height: number;
+  format: string;
+  variationIndex: number;
+}
 
 interface GenerationResultsProps {
-  generationResponse: GenerateResponse;
+  generationResults: GenerationResult[];
   onRegenerate?: () => void;
 }
 
 export function GenerationResults({ 
-  generationResponse,
+  generationResults,
   onRegenerate 
 }: GenerationResultsProps) {
-  const handleDownload = (url: string, id: string) => {
-    // Create a temporary link and trigger download
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `thumbnail-${id}.jpg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const [loadingStates, setLoadingStates] = useState<Record<number, boolean>>({});
+
+  const handleDownload = async (url: string, index: number) => {
+    try {
+      setLoadingStates(prev => ({ ...prev, [index]: true }));
+
+      // Fetch the image
+      const response = await fetch(url);
+      const blob = await response.blob();
+
+      // Create download link
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `thumbnail-${Date.now()}-${index}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error('Download failed:', error);
+    } finally {
+      setLoadingStates(prev => ({ ...prev, [index]: false }));
+    }
   };
 
-  return (
-    <div className="space-y-6 w-full animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <CheckCircle2 className="w-6 h-6 text-amber-400" />
-          <div>
-            <h3 className="text-xl font-semibold text-white">
-              Generated Thumbnails
-            </h3>
-            <p className="text-sm text-slate-400">
-              {generationResponse.thumbnails.length} variation{generationResponse.thumbnails.length !== 1 ? 's' : ''} created
-            </p>
-          </div>
-        </div>
-        {onRegenerate && (
-          <Button
-            variant="outline"
-            onClick={onRegenerate}
-            className="border-slate-700"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Regenerate
-          </Button>
-        )}
-      </div>
+  const handleOpenInNewTab = (url: string) => {
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
 
-      {/* Thumbnails Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {generationResponse.thumbnails.map((thumbnail) => (
-          <Card 
-            key={thumbnail.id}
-            className="border-amber-500/20 bg-gradient-to-br from-slate-900/90 to-slate-800/50 overflow-hidden group"
-          >
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <CardTitle className="text-base text-white">
-                    Thumbnail
-                  </CardTitle>
-                  {thumbnail.style && (
-                    <Badge variant="warning" className="text-xs">
-                      {thumbnail.style}
-                    </Badge>
-                  )}
+  if (!generationResults || generationResults.length === 0) {
+    return (
+      <div className="text-center py-12">
+        <p className="text-slate-400">No results available</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 w-full">
+      {/* Chat-like message bubbles for each result */}
+      {generationResults.map((result, index) => (
+        <div
+          key={`${result.publicId}-${index}`}
+          className="animate-in fade-in slide-in-from-bottom-4 duration-500"
+          style={{ animationDelay: `${index * 100}ms` }}
+        >
+          {/* Message bubble */}
+          <div className="flex gap-3 items-start">
+            {/* AI Avatar */}
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-amber-500/20 to-amber-600/10 border border-amber-500/30 flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+            </div>
+
+            {/* Message Content */}
+            <div className="flex-1 max-w-md">
+              {/* Compact Image Card */}
+              <div className="bg-gradient-to-br from-slate-900/90 to-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden hover:border-amber-500/30 transition-all group">
+                {/* Image Container - Smaller size */}
+                <div className="relative w-full aspect-video bg-slate-950 overflow-hidden">
+                  <Image
+                    src={result.url}
+                    alt={`Generated thumbnail ${index + 1}`}
+                    fill
+                    className="object-contain transition-transform group-hover:scale-105 duration-300"
+                    sizes="(max-width: 768px) 100vw, 400px"
+                    priority={index === 0}
+                  />
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => handleDownload(thumbnail.url, thumbnail.id)}
-                  className="bg-amber-500 hover:bg-amber-600 text-slate-900"
-                >
-                  <Download className="w-4 h-4 mr-1" />
-                  Download
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="relative aspect-video bg-slate-800 rounded-lg overflow-hidden border border-slate-700">
-                {/* Placeholder - Replace with actual image when available */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center space-y-2">
-                    <div className="w-16 h-16 mx-auto bg-gradient-to-br from-amber-500/20 to-amber-600/20 rounded-lg flex items-center justify-center">
-                      <CheckCircle2 className="w-8 h-8 text-amber-400" />
+
+                {/* Compact Info Bar */}
+                <div className="px-3 py-2 bg-slate-900/50 backdrop-blur-sm border-t border-slate-700/30">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                      <Badge variant="success" className="text-xs px-2 py-0">
+                        {result.width} × {result.height}
+                      </Badge>
+                      <span className="text-slate-600">•</span>
+                      <span className="uppercase">{result.format}</span>
                     </div>
-                    <p className="text-sm text-slate-400">
-                      Thumbnail generated
-                    </p>
+
+                    {/* Action Buttons */}
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => handleOpenInNewTab(result.url)}
+                        className="p-1.5 rounded-md hover:bg-slate-700/50 text-slate-400 hover:text-blue-400 transition-colors"
+                        title="Open in new tab"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDownload(result.url, index)}
+                        disabled={loadingStates[index]}
+                        className="p-1.5 rounded-md hover:bg-amber-500/10 text-slate-400 hover:text-amber-400 transition-colors disabled:opacity-50"
+                        title="Download"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-                {/* Uncomment when you have actual images */}
-                {/* <img
-                  src={thumbnail.url}
-                  alt={thumbnail.prompt}
-                  className="w-full h-full object-cover transition-transform group-hover:scale-105"
-                /> */}
               </div>
-              
-              {thumbnail.metadata && (
-                <div className="mt-3 flex items-center gap-4 text-xs text-slate-500">
-                  <span>{thumbnail.metadata.width} × {thumbnail.metadata.height}</span>
-                  <span className="uppercase">{thumbnail.metadata.format}</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
 
-      {/* Prompt Info */}
-      <Card className="border-slate-700">
-        <CardHeader>
-          <CardTitle className="text-sm text-white">Original Prompt</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-300">
-            {generationResponse.thumbnails[0]?.prompt || 'No prompt available'}
-          </p>
-        </CardContent>
-      </Card>
+              {/* Timestamp */}
+              <p className="text-xs text-slate-600 mt-1.5 ml-1">
+                Just now
+              </p>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
 import prisma from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { jobQueue, jobStatus } from '@/lib/queue/redis';
 
 // Request validation schema
 const refineSchema = z.object({
   parentJobId: z.string().uuid(),
   selectedVariation: z.number().min(0).max(2),
-  refinementPrompt: z.string().min(10).max(500),
+  refinementPrompt: z.string().min(10).max(2000, 'Refinement prompt too long (max 2000 characters)'),
   style: z.string().optional(),
 });
 
@@ -65,7 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Create refinement job and deduct token
-    const job = await prisma.$transaction(async (tx) => {
+    const job = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // Deduct token
       await tx.user.update({
         where: {

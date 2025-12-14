@@ -2,6 +2,7 @@
 
 export interface PlanRequest {
   prompt: string;
+  uploadedImages?: string[];
   options?: {
     researchDepth?: 'basic' | 'detailed' | 'comprehensive';
     maxSources?: number;
@@ -39,6 +40,7 @@ export interface PlanResponse {
 export interface GenerateRequest {
   prompt: string;
   style?: string;
+  uploadedImages?: string[];
   options?: {
     aspectRatio?: '16:9' | '4:3' | '1:1';
     quality?: 'standard' | 'hd';

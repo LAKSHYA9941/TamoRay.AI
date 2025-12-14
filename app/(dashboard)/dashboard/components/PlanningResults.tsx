@@ -1,12 +1,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { ExternalLink, Copy, CheckCircle2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Copy, CheckCircle2, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { Button } from '@/components/ui/button';
-import type { PlanResponse, PlanningStep, WebSearchResult } from '../types';
+import type { PlanResponse, WebSearchResult } from '../types';
 import { useState } from 'react';
 
 interface PlanningResultsProps {
@@ -23,168 +20,123 @@ export function PlanningResults({
   isStreaming = false 
 }: PlanningResultsProps) {
   const [copied, setCopied] = useState(false);
-  const textRef = useRef<HTMLDivElement>(null);
+  const [editableText, setEditableText] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Initialize editable text when plan is received
   useEffect(() => {
-    if (textRef.current && isStreaming) {
-      textRef.current.scrollTop = textRef.current.scrollHeight;
+    const text = streamingText || planResponse?.summary || '';
+    if (text && !editableText) {
+      setEditableText(text);
+    } else if (streamingText) {
+      setEditableText(streamingText);
     }
-  }, [streamingText, isStreaming]);
+  }, [streamingText, planResponse]);
+
+  // Auto-scroll during streaming
+  useEffect(() => {
+    if (textareaRef.current && isStreaming) {
+      textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+    }
+  }, [editableText, isStreaming]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+    }
+  }, [editableText]);
 
   const handleCopy = async () => {
-    const text = streamingText || planResponse?.summary || '';
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(editableText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const displayText = streamingText || planResponse?.summary || '';
-  const displaySources = sources.length > 0 ? sources : (planResponse?.sources || []);
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setEditableText(e.target.value);
+  };
+
+  if (!editableText && !isStreaming) {
+    return null;
+  }
 
   return (
-    <div className="space-y-6 w-full animate-in fade-in duration-500">
-      {/* Main Plan Content */}
-      <Card className="border-blue-500/20 bg-gradient-to-br from-slate-900/90 to-slate-800/50">
-        <CardHeader>
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <CardTitle className="text-2xl text-white flex items-center gap-2">
-                <CheckCircle2 className="w-6 h-6 text-blue-400" />
-                Your Plan
-              </CardTitle>
-              <CardDescription>
-                {isStreaming ? 'Generating plan...' : 'Plan generated successfully'}
-              </CardDescription>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCopy}
-              className="border-slate-700"
-            >
-              {copied ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 mr-2 text-green-400" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4 mr-2" />
-                  Copy
-                </>
-              )}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div
-            ref={textRef}
-            className="prose prose-invert max-w-none"
-          >
-            <div className="whitespace-pre-wrap text-slate-200 leading-relaxed">
-              {displayText}
-              {isStreaming && (
-                <span className="inline-block w-2 h-5 bg-blue-400 animate-pulse ml-1" />
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="space-y-4 w-full animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Chat-like message bubble */}
+      <div className="flex gap-3 items-start">
+        {/* AI Avatar */}
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/30 flex items-center justify-center">
+          <Sparkles className="w-4 h-4 text-blue-400" />
+        </div>
 
-      {/* Web Search Sources */}
-      {displaySources.length > 0 && (
-        <Card className="border-slate-700">
-          <CardHeader>
-            <CardTitle className="text-lg text-white flex items-center gap-2">
-              <ExternalLink className="w-5 h-5 text-blue-400" />
-              Research Sources
-              <Badge variant="info">{displaySources.length}</Badge>
-            </CardTitle>
-            <CardDescription>
-              Information gathered from web search
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Accordion type="single" collapsible className="w-full">
-              {displaySources.map((source, index) => (
-                <AccordionItem key={index} value={`source-${index}`}>
-                  <AccordionTrigger className="text-left hover:text-blue-400">
-                    <div className="flex items-start gap-3">
-                      <Badge variant="outline" className="mt-1">
-                        {index + 1}
-                      </Badge>
-                      <div>
-                        <p className="font-medium text-white">
-                          {typeof source === 'object' && 'title' in source 
-                            ? source.title 
-                            : `Source ${index + 1}`}
-                        </p>
-                        {typeof source === 'object' && 'url' in source && (
-                          <p className="text-xs text-slate-500 mt-1">
-                            {source.url}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <div className="pl-12 pr-4 space-y-2">
-                      {typeof source === 'object' && 'snippet' in source && (
-                        <p className="text-sm text-slate-300">{source.snippet}</p>
-                      )}
-                      {typeof source === 'object' && 'url' in source && (
-                        <a
-                          href={source.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300"
-                        >
-                          Visit source
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Planning Steps (if available) */}
-      {planResponse?.steps && planResponse.steps.length > 0 && (
-        <Card className="border-slate-700">
-          <CardHeader>
-            <CardTitle className="text-lg text-white">Action Steps</CardTitle>
-            <CardDescription>
-              Breakdown of your plan into actionable steps
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {planResponse.steps.map((step, index) => (
-                <div
-                  key={step.id}
-                  className="flex gap-4 p-4 bg-slate-800/30 rounded-lg border border-slate-700/50"
-                >
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 rounded-full bg-blue-500/20 border border-blue-500/50 flex items-center justify-center text-blue-400 font-semibold">
-                      {index + 1}
-                    </div>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <h4 className="font-medium text-white">{step.title}</h4>
-                    {step.description && (
-                      <p className="text-sm text-slate-400">{step.description}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
+        {/* Message Content */}
+        <div className="flex-1 max-w-2xl">
+          {/* Compact Plan Card */}
+          <div className="bg-gradient-to-br from-slate-900/90 to-slate-800/50 rounded-2xl border border-slate-700/50 overflow-hidden hover:border-blue-500/30 transition-all">
+            {/* Header */}
+            <div className="px-4 py-3 bg-slate-900/50 backdrop-blur-sm border-b border-slate-700/30 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-blue-400">
+                  {isStreaming ? 'Generating plan...' : 'Your Plan'}
+                </span>
+                {!isStreaming && (
+                  <Badge variant="info" className="text-xs">
+                    Editable
+                  </Badge>
+                )}
+              </div>
+              <button
+                onClick={handleCopy}
+                className="p-1.5 rounded-md hover:bg-slate-700/50 text-slate-400 hover:text-blue-400 transition-colors"
+                title="Copy plan"
+              >
+                {copied ? (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
             </div>
-          </CardContent>
-        </Card>
-      )}
+
+            {/* Editable Content */}
+            <div className="p-4">
+              <div className="relative">
+                <textarea
+                  ref={textareaRef}
+                  value={editableText}
+                  onChange={handleTextChange}
+                  onFocus={() => setIsEditing(true)}
+                  onBlur={() => setIsEditing(false)}
+                  disabled={isStreaming}
+                  className={`w-full min-h-[150px] p-3 bg-slate-800/30 border rounded-lg 
+                             text-slate-200 text-sm leading-relaxed resize-none overflow-hidden
+                             focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-transparent
+                             disabled:opacity-70 disabled:cursor-not-allowed
+                             ${isEditing ? 'border-blue-400/50' : 'border-slate-700/30'}
+                             transition-all duration-200`}
+                  placeholder="Your plan will appear here..."
+                  style={{
+                    fontFamily: 'inherit',
+                    fontSize: 'inherit',
+                    lineHeight: 'inherit'
+                  }}
+                />
+                {isStreaming && (
+                  <span className="absolute bottom-3 right-3 w-2 h-4 bg-blue-400 animate-pulse rounded-sm" />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Timestamp */}
+          <p className="text-xs text-slate-600 mt-1.5 ml-1">
+            Just now
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

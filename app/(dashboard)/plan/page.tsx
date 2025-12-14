@@ -1,30 +1,29 @@
-// app/dashboard/page.tsx
 'use client';
 
 import { useState, useRef } from 'react';
-import { GenerateContent } from '@/app/(dashboard)/dashboard/GenerateContent';
-import { useGeneration } from '@/app/(dashboard)/dashboard/hooks/useGeneration';
+import { Search } from 'lucide-react';
+import { PlanContent } from '@/app/(dashboard)/dashboard/PlanContent';
+import { usePlanning } from '@/app/(dashboard)/dashboard/hooks/usePlanning';
+import { Badge } from '@/components/ui/badge';
 import { ChatInput } from '@/components/ui/chat-input';
 
-export default function Dashboard() {
+export default function PlanPage() {
   const [inputValue, setInputValue] = useState('');
-  const [selectedStyle, setSelectedStyle] = useState('modern');
+  const [includeWebSearch, setIncludeWebSearch] = useState(true);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const generation = useGeneration();
+  const planning = usePlanning();
   
   const handleSend = () => {
     if (!inputValue.trim()) return;
 
-    generation.startGeneration({
+    planning.startPlanning({
       prompt: inputValue,
-      style: selectedStyle,
       uploadedImages: uploadedImages,
       options: {
-        aspectRatio: '16:9',
-        quality: 'hd',
-        numberOfVariations: 1,
+        includeWebSearch,
+        researchDepth: 'detailed',
       },
     });
 
@@ -70,10 +69,9 @@ export default function Dashboard() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col p-4 overflow-auto">
         <div className="max-w-3xl mx-auto w-full flex-1 flex flex-col">
-          <GenerateContent
-            generationState={generation}
-            selectedStyle={selectedStyle}
-            onStyleChange={setSelectedStyle}
+          <PlanContent
+            planningState={planning}
+            includeWebSearch={includeWebSearch}
           />
         </div>
       </div>
@@ -91,13 +89,32 @@ export default function Dashboard() {
             className="hidden"
           />
 
+          {/* Options Row */}
+          <div className="flex items-center gap-2 px-1">
+            <button
+              type="button"
+              onClick={() => setIncludeWebSearch(!includeWebSearch)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-medium transition-all ${includeWebSearch
+                ? 'bg-blue-500/10 border-blue-500/50 text-blue-400 shadow-lg shadow-blue-500/20'
+                : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:border-slate-600'
+                }`}
+              disabled={planning.isPlanning}
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span>Web Search</span>
+              {includeWebSearch && (
+                <Badge variant="info" className="ml-1 text-xs px-1.5 py-0">ON</Badge>
+              )}
+            </button>
+          </div>
+
           {/* Chat Input */}
           <ChatInput
             value={inputValue}
             onChange={setInputValue}
             onSubmit={handleSend}
-            placeholder="Ask, Search or Chat..."
-            disabled={generation.isGenerating}
+            placeholder="What would you like to plan?"
+            disabled={planning.isPlanning}
             onAttachClick={handleAttachClick}
             tokensUsed={tokensUsed}
             totalTokens={totalTokens}
@@ -107,7 +124,9 @@ export default function Dashboard() {
 
           {/* Footer Text */}
           <p className="text-xs text-center text-slate-500 px-4">
-            ✨ Powered by Flux 1.1 Pro • High-quality AI thumbnails
+            {uploadedImages.length > 0
+              ? "💡 AI will analyze your images and create a contextual plan"
+              : "💡 AI-powered planning with web research"}
           </p>
         </div>
       </div>

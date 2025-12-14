@@ -2,25 +2,37 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
 import prisma from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 import { jobQueue, jobStatus } from '@/lib/queue/redis';
 
 // Request validation schema
 const generateSchema = z.object({
-    prompt: z.string().min(10, 'Prompt must be at least 10 characters').max(500, 'Prompt too long'),
+    prompt: z.string().min(10, 'Prompt must be at least 10 characters').max(2000, 'Prompt too long (max 2000 characters)'),
     uploadedImages: z.array(z.string().url()).max(3).optional(),
     style: z.string().optional(),
 });
 
 export async function POST(req: NextRequest) {
+    console.log('🎨 [Generate API] Received generation request');
+
     try {
         // 1. Authenticate
         const { userId: clerkId } = await auth();
         if (!clerkId) {
+            console.log('❌ [Generate API] Unauthorized request');
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
+        console.log('✅ [Generate API] User authenticated:', clerkId);
+
         // 2. Validate input
         const body = await req.json();
+        console.log('📝 [Generate API] Request body:', {
+            prompt: body.prompt?.substring(0, 50) + '...',
+            hasImages: !!body.uploadedImages,
+            style: body.style
+        });
+
         const validated = generateSchema.parse(body);
 
         // 3. Get user and check tokens
@@ -30,10 +42,14 @@ export async function POST(req: NextRequest) {
         });
 
         if (!user) {
+            console.log('❌ [Generate API] User not found in database');
             return NextResponse.json({ error: 'User not found' }, { status: 404 });
         }
 
+        console.log('💰 [Generate API] User tokens:', user.tokens);
+
         if (user.tokens < 1) {
+            console.log('❌ [Generate API] Insufficient tokens');
             return NextResponse.json(
                 {
                     error: 'Insufficient tokens',
@@ -45,7 +61,9 @@ export async function POST(req: NextRequest) {
         }
 
         // 4. Create job and deduct token atomically
-        const job = await prisma.$transaction(async (tx) => {
+        console.log('💾 [Generate API] Creating job in database...');
+
+        const job = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
             // Deduct token
             await tx.user.update({
                 where: {
@@ -71,7 +89,11 @@ export async function POST(req: NextRequest) {
             });
         });
 
+        console.log('✅ [Generate API] Job created:', job.id);
+
         // 5. Add to Redis queue
+        console.log('📤 [Generate API] Adding job to Redis queue...');
+
         await jobQueue.push({
             jobId: job.id,
             userId: user.id,
@@ -89,6 +111,8 @@ export async function POST(req: NextRequest) {
             eta: 45,
         });
 
+        console.log('✅ [Generate API] Job queued successfully');
+
         return NextResponse.json(
             {
                 jobId: job.id,
@@ -98,9 +122,10 @@ export async function POST(req: NextRequest) {
             { status: 202 }
         );
     } catch (error) {
-        console.error('Generate API error:', error);
+        console.error('❌ [Generate API] Error:', error);
 
         if (error instanceof z.ZodError) {
+            console.log('⚠️ [Generate API] Validation error:', error.errors);
             return NextResponse.json(
                 { error: 'Invalid input', details: error.errors },
                 { status: 400 }

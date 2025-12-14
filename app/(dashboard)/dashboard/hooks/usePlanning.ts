@@ -23,9 +23,10 @@ export function usePlanning(): UsePlanningReturn {
   const startPlanning = useCallback(async (request: PlanRequest) => {
     setIsPlanning(true);
     setError(null);
-    setStreamingText('');
+    // DON'T reset streamingText and planResponse - keep chat history
+    // setStreamingText('');
+    // setPlanResponse(null);
     setSources([]);
-    setPlanResponse(null);
 
     try {
       const response = await fetch('/api/plan', {
@@ -51,34 +52,38 @@ export function usePlanning(): UsePlanningReturn {
 
       let fullText = '';
       const collectedSources: any[] = [];
+      let buffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n\n');
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\\n\\n');
+
+        // Keep the last line in the buffer as it might be incomplete
+        buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith('data: ')) {
             try {
-              const data = JSON.parse(line.slice(6));
+              const data = JSON.parse(trimmedLine.slice(6));
 
               if (data.type === 'text') {
                 fullText += data.content;
-                setStreamingText(fullText);
+                setStreamingText(prev => prev + data.content);
               } else if (data.type === 'tool_call') {
-                // Handle tool call notification
                 console.log('Tool call:', data.tool);
               } else if (data.type === 'tool_result') {
-                // Handle tool results (web search)
                 if (data.result) {
                   collectedSources.push(data.result);
                   setSources([...collectedSources]);
                 }
+              } else if (data.type === 'debug') {
+                console.log('Server Debug:', data.event);
               } else if (data.type === 'complete') {
-                // Final response
                 const finalResponse: PlanResponse = {
                   id: `plan_${Date.now()}`,
                   prompt: request.prompt,
@@ -89,7 +94,7 @@ export function usePlanning(): UsePlanningReturn {
                   status: 'completed',
                 };
                 setPlanResponse(finalResponse);
-                setStreamingText(data.response);
+                setStreamingText(prev => prev + '\n\n' + data.response);
               } else if (data.type === 'error') {
                 throw new Error(data.error);
               }

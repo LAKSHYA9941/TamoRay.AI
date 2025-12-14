@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { FileText, ListChecks } from 'lucide-react';
+import { FileText, ListChecks, History } from 'lucide-react';
 
-type Tab = 'generate' | 'plan';
+type Tab = 'generate' | 'plan' | 'history';
 
 interface TabNavigationProps {
   activeTab: Tab;
@@ -11,30 +10,35 @@ interface TabNavigationProps {
 }
 
 export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
+  const tabs = [
+    { id: 'generate' as const, label: 'Generate', icon: FileText, color: 'amber' },
+    { id: 'plan' as const, label: 'Plan', icon: ListChecks, color: 'blue' },
+    { id: 'history' as const, label: 'History', icon: History, color: 'purple' },
+  ];
+
   return (
-    <div className="flex gap-2 mb-2 px-1">
-      <button
-        onClick={() => onTabChange('generate')}
-        className={`flex items-center px-3 py-1.5 text-sm rounded-md transition-colors ${
-          activeTab === 'generate'
-            ? 'bg-slate-700 text-amber-400'
-            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-        }`}
-      >
-        <FileText className="w-4 h-4 mr-1.5" />
-        Generate
-      </button>
-      <button
-        onClick={() => onTabChange('plan')}
-        className={`flex items-center px-3 py-1.5 text-sm rounded-md transition-colors ${
-          activeTab === 'plan'
-            ? 'bg-slate-700 text-amber-400'
-            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-        }`}
-      >
-        <ListChecks className="w-4 h-4 mr-1.5" />
-        Plan
-      </button>
+    <div className="flex gap-1 border-b border-slate-800/50">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const isActive = activeTab === tab.id;
+
+        return (
+          <button
+            key={tab.id}
+            onClick={() => onTabChange(tab.id)}
+            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium rounded-t-lg transition-all relative ${isActive
+                ? `text-${tab.color}-400 bg-slate-900/50`
+                : 'text-slate-400 hover:bg-slate-900/30 hover:text-slate-200'
+              }`}
+          >
+            <Icon className="w-4 h-4" />
+            <span>{tab.label}</span>
+            {isActive && (
+              <div className={`absolute bottom-0 left-0 right-0 h-0.5 bg-${tab.color}-400`} />
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

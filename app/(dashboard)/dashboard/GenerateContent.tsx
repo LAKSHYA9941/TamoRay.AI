@@ -8,7 +8,7 @@ import { ErrorState } from './components/ErrorState';
 interface GenerateContentProps {
   generationState: {
     isGenerating: boolean;
-    generationResponse: any;
+    generationResults: any;
     error: string | null;
     progress: number;
     reset: () => void;
@@ -20,7 +20,7 @@ interface GenerateContentProps {
 export function GenerateContent({ generationState, selectedStyle }: GenerateContentProps) {
   const {
     isGenerating,
-    generationResponse,
+    generationResults,
     error,
     progress,
     reset,
@@ -28,7 +28,7 @@ export function GenerateContent({ generationState, selectedStyle }: GenerateCont
 
   return (
     <div className="flex flex-col items-center w-full">
-      {!generationResponse && !isGenerating && !error && (
+      {!generationResults && !isGenerating && !error && (
         // Initial empty state
         <div className="flex flex-col items-center text-center justify-center flex-1">
           <div className="mb-8 p-6 bg-gradient-to-br from-amber-500/10 to-amber-600/5 rounded-full border border-amber-500/20">
@@ -61,10 +61,10 @@ export function GenerateContent({ generationState, selectedStyle }: GenerateCont
         />
       )}
 
-      {generationResponse && !isGenerating && (
+      {generationResults && !isGenerating && (
         <div className="w-full space-y-6 py-4">
           <GenerationResults
-            generationResponse={generationResponse}
+            generationResults={generationResults}
             onRegenerate={reset}
           />
 

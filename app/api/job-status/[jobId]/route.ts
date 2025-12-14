@@ -5,30 +5,47 @@ import { jobStatus } from '@/lib/queue/redis';
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { jobId: string } }
+  props: { params: Promise<{ jobId: string }> }
 ) {
   try {
+    const params = await props.params;
     const { userId: clerkId } = await auth();
+
     if (!clerkId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const jobId = params.jobId;
+    console.log('📊 [Job Status] Checking status for job:', jobId);
 
     // Check Redis first (fast)
     const redisStatus = await jobStatus.get(jobId);
 
     if (redisStatus && Object.keys(redisStatus).length > 0) {
+      console.log('✅ [Job Status] Found in Redis:', redisStatus.status);
+
+      // Parse results if they exist
+      let parsedResults = null;
+      if (redisStatus.results) {
+        try {
+          parsedResults = JSON.parse(redisStatus.results as string);
+        } catch (e) {
+          console.error('⚠️ [Job Status] Failed to parse results from Redis:', e);
+        }
+      }
+
       return NextResponse.json({
         jobId,
         status: redisStatus.status,
         progress: parseInt(redisStatus.progress as string) || 0,
         currentStep: redisStatus.currentStep,
         eta: parseInt(redisStatus.eta as string) || 0,
-        results: redisStatus.results ? JSON.parse(redisStatus.results as string) : null,
+        results: parsedResults,
         error: redisStatus.error,
       });
     }
+
+    console.log('🔍 [Job Status] Not in Redis, checking database...');
 
     // Fallback to database
     const job = await prisma.job.findFirst({
@@ -48,8 +65,11 @@ export async function GET(
     });
 
     if (!job) {
+      console.log('❌ [Job Status] Job not found:', jobId);
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
+
+    console.log('✅ [Job Status] Found in database:', job.status);
 
     return NextResponse.json({
       jobId: job.id,
@@ -61,7 +81,7 @@ export async function GET(
       error: job.errorMessage,
     });
   } catch (error) {
-    console.error('Job status error:', error);
+    console.error('❌ [Job Status] Error:', error);
     return NextResponse.json(
       {
         error: 'Internal server error',

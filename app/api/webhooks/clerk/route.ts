@@ -1,7 +1,7 @@
 import { Webhook } from 'svix';
 import { WebhookEvent } from '@clerk/nextjs/server';
 import { NextRequest } from 'next/server';
-import { prisma } from '@/app/lib/db/db';
+import { prisma } from '@/lib/db/db';
 
 export async function POST(req: NextRequest) {
   console.log('🔔 Webhook received at:', new Date().toISOString());
